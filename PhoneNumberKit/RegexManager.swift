@@ -12,6 +12,7 @@ final class RegexManager {
 
     // MARK: Regular expression pool
 
+    private let regularExpressionPoolQueue = DispatchQueue(label: "com.phonenumberkit.regexpool", attributes: .concurrent)
     var regularExpresionPool = [String: NSRegularExpression]()
 
     var spaceCharacterSet: CharacterSet = {
@@ -20,24 +21,28 @@ final class RegexManager {
         return characterSet as CharacterSet
     }()
 
-    deinit {
-        regularExpresionPool.removeAll()
-    }
-
     // MARK: Regular expression
 
     func regexWithPattern(_ pattern: String) throws -> NSRegularExpression {
-        if let regex = regularExpresionPool[pattern] {
-            return regex
-        } else {
-            do {
-                let regularExpression: NSRegularExpression
-                regularExpression =  try NSRegularExpression(pattern: pattern, options:NSRegularExpression.Options.caseInsensitive)
-                regularExpresionPool[pattern] = regularExpression
-                return regularExpression
-            } catch {
-                throw PhoneNumberError.generalError
+        var cached: NSRegularExpression?
+        regularExpressionPoolQueue.sync {
+            cached = self.regularExpresionPool[pattern]
+        }
+        if let cached = cached {
+            return cached
+        }
+
+        do {
+            let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+
+            regularExpressionPoolQueue.async(flags: .barrier) {
+                self.regularExpresionPool[pattern] = regex
             }
+
+            return regex
+        }
+        catch {
+            throw PhoneNumberError.generalError
         }
     }
 
